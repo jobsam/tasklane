@@ -183,7 +183,3 @@ clj -M:test
 clj -T:build clean
 clj -T:build jar
 ```
-
-## Notes
-This project is intentionally small but structured to reflect real interview
-requirements: API hygiene, validation, lifecycle operations, and test coverage.
