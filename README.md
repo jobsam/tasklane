@@ -178,6 +178,8 @@ TASKLANE_DB=/tmp/tasklane.db clj -M:run
 clj -M:test
 ```
 
-## Notes
-This project is intentionally small but structured to reflect real interview
-requirements: API hygiene, validation, lifecycle operations, and test coverage.
+## Build a jar
+```bash
+clj -T:build clean
+clj -T:build jar
+```
