@@ -1,6 +1,8 @@
 (ns tasklane.runner
   (:require [clojure.test :as test]
             [tasklane.http-test]
+            [tasklane.planner-test]
+            [tasklane.sqlite-test]
             [tasklane.service-test]))
 
 (defn -main
