@@ -1,18 +1,19 @@
 (ns tasklane.service
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [tasklane.store :as store]))
 
 (def ^:private allowed-statuses
   "Legal task workflow states."
   #{:pending :in-progress :done})
 
-(defonce ^{:doc "In-memory task store for demo purposes."}
-  tasks
-  (atom []))
+(defonce ^{:doc "Default in-memory task store for demo purposes."}
+  default-store
+  (store/new-memory-store))
 
 (defn reset-tasks!
   "Clear all tasks. Intended for tests."
   []
-  (reset! tasks []))
+  (store/reset-store! default-store))
 
 (defn- now-iso
   "Return current time as an ISO-8601 string."
@@ -27,6 +28,14 @@
     (string? status) (keyword status)
     :else nil))
 
+(defn- parse-iso
+  "Parse ISO-8601 string into an Instant, returning nil if invalid."
+  [value]
+  (when (string? value)
+    (try
+      (java.time.Instant/parse value)
+      (catch Exception _ nil))))
+
 (defn- valid-name?
   [name]
   (and (string? name) (not (str/blank? name))))
@@ -39,6 +48,8 @@
 (defn- validate-common
   [task errors]
   (let [status (normalize-status (:status task))
+        due-at (:due-at task)
+        due-instant (when (contains? task :due-at) (parse-iso due-at))
         errors (cond-> errors
                  (and (contains? task :status)
                       (not (contains? allowed-statuses status)))
@@ -53,7 +64,12 @@
                  (and (contains? task :description)
                       (not (string? (:description task))))
                  (conj {:field :description
-                        :message "description must be a string"}))]
+                        :message "description must be a string"}))
+        errors (cond-> errors
+                 (and (contains? task :due-at)
+                      (nil? due-instant))
+                 (conj {:field :due-at
+                        :message "due-at must be an ISO-8601 instant"}))]
     {:errors errors
      :status status}))
 
@@ -67,7 +83,7 @@
 
 (defn- validate-update
   [updates]
-  (let [allowed-keys #{:name :description :status :priority}
+  (let [allowed-keys #{:name :description :status :priority :due-at}
         updates (select-keys updates allowed-keys)]
     (validate-common
      updates
@@ -83,83 +99,78 @@
            :message message
            :errors errors}})
 
-(defn- next-id
-  []
-  (inc (reduce max 0 (map :id @tasks))))
-
 (defn create-task
   "Create a task from the provided map.
    Required fields: :name. Optional: :description, :status, :priority."
-  [task]
-  (if (map? task)
-    (let [{:keys [errors status]} (validate-create task)]
-      (if (seq errors)
-        (error-result :validation "Task validation failed" errors)
-        (let [task (-> task
-                       (select-keys [:name :description :priority])
-                       (assoc :id (next-id)
-                              :status (or status :pending)
-                              :created-at (now-iso)))
-              _ (swap! tasks conj task)]
-          {:ok task})))
-    (error-result :validation "Task body must be a JSON object"
-                  [{:field :body :message "expected an object"}])))
+  ([task]
+   (create-task default-store task))
+  ([store task]
+   (if (map? task)
+     (let [{:keys [errors status]} (validate-create task)]
+       (if (seq errors)
+         (error-result :validation "Task validation failed" errors)
+         (let [task (-> task
+                        (select-keys [:name :description :priority :due-at])
+                        (assoc :status (or status :pending)
+                               :created-at (now-iso)))
+               task (store/create-task! store task)]
+           {:ok task})))
+     (error-result :validation "Task body must be a JSON object"
+                   [{:field :body :message "expected an object"}]))))
 
 (defn list-tasks
   "Return tasks filtered and paginated by the provided options."
   ([]
-   @tasks)
-  ([{:keys [status limit offset]}]
-   (let [status (normalize-status status)
-         filtered (cond->> @tasks
-                    status (filter #(= status (:status %))))
-         offset (or offset 0)
-         limit (or limit 50)]
-     (->> filtered
-          (drop offset)
-          (take limit)
-          vec))))
+   (store/list-tasks default-store {:limit nil :offset 0}))
+  ([filters]
+   (list-tasks default-store filters))
+  ([store {:keys [status limit offset]}]
+   (let [limit (if (nil? limit) 50 limit)
+         offset (or offset 0)]
+     (store/list-tasks store {:status (normalize-status status)
+                              :limit limit
+                              :offset offset}))))
 
 (defn get-task
   "Return a task by id, or nil if missing."
-  [id]
-  (first (filter #(= id (:id %)) @tasks)))
+  ([id]
+   (get-task default-store id))
+  ([store id]
+   (store/get-task store id)))
 
 (defn update-task
   "Update an existing task. Returns {:ok task} or {:error ...}."
-  [id updates]
-  (cond
-    (not (map? updates))
-    (error-result :validation "Task update must be a JSON object"
-                  [{:field :body :message "expected an object"}])
+  ([id updates]
+   (update-task default-store id updates))
+  ([store id updates]
+   (cond
+     (not (map? updates))
+     (error-result :validation "Task update must be a JSON object"
+                   [{:field :body :message "expected an object"}])
 
-    (nil? (get-task id))
-    (error-result :not-found "Task not found"
-                  [{:field :id :message "no task for that id"}])
+     (nil? (get-task store id))
+     (error-result :not-found "Task not found"
+                   [{:field :id :message "no task for that id"}])
 
-    :else
-    (let [current (get-task id)
-          {:keys [errors status]} (validate-update updates)]
-      (if (seq errors)
-        (error-result :validation "Task update failed" errors)
-        (let [updates (-> updates
-                          (select-keys [:name :description :priority])
-                          (cond-> (contains? updates :status)
-                            (assoc :status status))
-                          (assoc :updated-at (now-iso)))
-              updated (merge current updates)]
-          (swap! tasks (fn [items]
-                         (mapv (fn [task]
-                                 (if (= id (:id task)) updated task))
-                               items)))
-          {:ok updated})))))
+     :else
+     (let [current (get-task store id)
+           {:keys [errors status]} (validate-update updates)]
+       (if (seq errors)
+         (error-result :validation "Task update failed" errors)
+         (let [updates (-> updates
+                           (select-keys [:name :description :priority :due-at])
+                           (cond-> (contains? updates :status)
+                             (assoc :status status))
+                           (assoc :updated-at (now-iso)))
+               updated (store/update-task! store id updates)]
+           {:ok (merge current updates updated)}))))))
 
 (defn delete-task
   "Delete a task by id. Returns {:ok task} or {:error ...}."
-  [id]
-  (if-let [current (get-task id)]
-    (do
-      (swap! tasks (fn [items] (vec (remove #(= id (:id %)) items))))
-      {:ok current})
-    (error-result :not-found "Task not found"
-                  [{:field :id :message "no task for that id"}])))
+  ([id]
+   (delete-task default-store id))
+  ([store id]
+   (if-let [current (store/delete-task! store id)]
+     {:ok current}
+     (error-result :not-found "Task not found"
+                   [{:field :id :message "no task for that id"}]))))

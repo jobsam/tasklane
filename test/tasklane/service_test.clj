@@ -9,17 +9,22 @@
 
 (deftest task-creation-test
   (testing "task creation assigns fields"
-    (let [result (service/create-task {:name "demo" :priority 2})
+    (let [due-at "2024-01-01T00:00:00Z"
+          result (service/create-task {:name "demo" :priority 2 :due-at due-at})
           task (:ok result)]
       (is (= "demo" (:name task)))
       (is (= 1 (:id task)))
       (is (= :pending (:status task)))
       (is (= 2 (:priority task)))
+      (is (= due-at (:due-at task)))
       (is (string? (:created-at task))))))
 
 (deftest task-validation-test
   (testing "task creation requires a name"
     (let [result (service/create-task {:priority 3})]
+      (is (= :validation (get-in result [:error :type])))))
+  (testing "task creation validates due date"
+    (let [result (service/create-task {:name "demo" :due-at "not-a-date"})]
       (is (= :validation (get-in result [:error :type])))))
   (testing "task update requires a field"
     (let [task (:ok (service/create-task {:name "demo"}))

@@ -56,45 +56,36 @@
                :errors errors}}
       {:ok {:status status :limit limit :offset offset}})))
 
-(defn- handle-create
-  [req]
-  (let [result (service/create-task (:body req))]
-    (if-let [task (:ok result)]
-      (created task)
-      (bad-request (:error result)))))
-
-(defn- handle-list
-  [req]
-  (let [query (list-query (:query-params req))]
-    (if-let [filters (:ok query)]
-      (ok (service/list-tasks filters))
-      (bad-request (:error query)))))
-
-(defn- handle-get
-  [id]
-  (if-let [task (service/get-task id)]
-    (ok task)
-    (not-found {:type :not-found
-                :message "Task not found"
-                :errors [{:field :id :message "no task for that id"}]})))
-
-(defn- handle-update
-  [id req]
-  (let [result (service/update-task id (:body req))]
-    (cond
-      (:ok result) (ok (:ok result))
-      (= :not-found (get-in result [:error :type])) (not-found (:error result))
-      :else (bad-request (:error result)))))
-
-(defn- handle-delete
-  [id]
-  (let [result (service/delete-task id)]
-    (if-let [task (:ok result)]
-      (ok task)
-      (not-found (:error result)))))
-
-(def app
-  (let [handler
+(defn app-with-store
+  [store]
+  (let [handle-create (fn [req]
+                        (let [result (service/create-task store (:body req))]
+                          (if-let [task (:ok result)]
+                            (created task)
+                            (bad-request (:error result)))))
+        handle-list (fn [req]
+                      (let [query (list-query (:query-params req))]
+                        (if-let [filters (:ok query)]
+                          (ok (service/list-tasks store filters))
+                          (bad-request (:error query)))))
+        handle-get (fn [id]
+                     (if-let [task (service/get-task store id)]
+                       (ok task)
+                       (not-found {:type :not-found
+                                   :message "Task not found"
+                                   :errors [{:field :id :message "no task for that id"}]})))
+        handle-update (fn [id req]
+                        (let [result (service/update-task store id (:body req))]
+                          (cond
+                            (:ok result) (ok (:ok result))
+                            (= :not-found (get-in result [:error :type])) (not-found (:error result))
+                            :else (bad-request (:error result)))))
+        handle-delete (fn [id]
+                        (let [result (service/delete-task store id)]
+                          (if-let [task (:ok result)]
+                            (ok task)
+                            (not-found (:error result)))))
+        handler
         (ring/ring-handler
          (ring/router
           [["/health" {:get (fn [_] (ok {:status "OK"}))}]
@@ -128,9 +119,13 @@
                                                      :message "Malformed JSON"}}})
         (wrap-json-response))))
 
+(def app
+  (app-with-store service/default-store))
+
 (defonce server (atom nil))
 
 (defn start
   "Start the HTTP server on port 3000."
-  []
-  (reset! server (jetty/run-jetty app {:port 3000 :join? false})))
+  ([] (start app))
+  ([handler]
+   (reset! server (jetty/run-jetty handler {:port 3000 :join? false}))))
