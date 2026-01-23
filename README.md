@@ -5,6 +5,32 @@ validated task workflows, pluggable storage (in-memory or SQLite), and an
 optional HTTP API. It is intentionally minimal but fully functional so you can
 embed it, extend it, or use it as a foundation for a larger system.
 
+## What it is / isn't
+**It is:**
+- A functional starter library for task CRUD with validation
+- A pluggable storage layer with in-memory and SQLite implementations
+- A small HTTP wrapper you can run or embed
+- A base you can extend with auth, multi-user, and richer domain logic
+
+**It isn't:**
+- A production-ready task platform out of the box
+- A replacement for full project management suites
+- Opinionated about auth, users, or multi-tenant data models
+
+## Installation
+Use as a local library while iterating, then publish to Clojars when ready.
+
+### deps.edn (local checkout)
+```clojure
+{:deps {tasklane/tasklane {:local/root "/path/to/tasklane"}}}
+```
+
+### deps.edn (git dep)
+```clojure
+{:deps {tasklane/tasklane {:git/url "https://github.com/jobsam/tasklane"
+                           :sha "PUT_COMMIT_SHA_HERE"}}}
+```
+
 ## Features
 - JSON API with Ring + Reitit
 - In-memory task store plus SQLite-backed persistence
@@ -100,6 +126,19 @@ Example:
 (planner/prioritize tasks {:limit 3})
 (planner/workload-report tasks {:horizon-hours 48})
 ```
+
+## Core API
+The service layer is a library API. When a store is omitted, the in-memory
+store is used.
+
+- `create-task` -> `{:ok task}` or `{:error ...}`
+- `list-tasks` -> vector of tasks
+- `get-task` -> task or `nil`
+- `update-task` -> `{:ok task}` or `{:error ...}`
+- `delete-task` -> `{:ok task}` or `{:error ...}`
+
+Tasks are maps with `:id`, `:name`, `:description`, `:status`, `:priority`,
+`:due-at`, `:created-at`, and optional `:updated-at`.
 
 ## Error responses
 Validation errors return `400` with:
