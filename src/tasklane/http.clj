@@ -45,16 +45,19 @@
   (let [status (keywordize-status (get params "status"))
         limit (some-> (get params "limit") parse-int)
         offset (some-> (get params "offset") parse-int)
+        tag (get params "tag")
         errors (cond-> []
                  (and (some? limit) (neg? limit))
                  (conj {:field :limit :message "limit must be >= 0"})
                  (and (some? offset) (neg? offset))
-                 (conj {:field :offset :message "offset must be >= 0"}))]
+                 (conj {:field :offset :message "offset must be >= 0"})
+                 (and (some? tag) (str/blank? tag))
+                 (conj {:field :tag :message "tag must be a non-empty string"}))]
     (if (seq errors)
       {:error {:type :validation
                :message "Invalid query params"
                :errors errors}}
-      {:ok {:status status :limit limit :offset offset}})))
+      {:ok {:status status :tag tag :limit limit :offset offset}})))
 
 (defn app-with-store
   [store]

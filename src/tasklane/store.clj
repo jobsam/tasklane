@@ -20,13 +20,17 @@
   TaskStore
   (create-task! [_ task]
     (let [next-id (inc (reduce max 0 (map :id @tasks)))
-          task (assoc task :id next-id)]
+          task (assoc task :id next-id :tags (or (:tags task) []))]
       (swap! tasks conj task)
       task))
-  (list-tasks [_ {:keys [status limit offset]}]
+  (list-tasks [_ {:keys [status tag limit offset]}]
     (let [status (normalize-status status)
+          tag (when (and (string? tag) (not (str/blank? tag))) tag)
           filtered (cond->> @tasks
                      status (filter #(= status (:status %))))
+          filtered (if tag
+                     (filter #(some #{tag} (:tags %)) filtered)
+                     filtered)
           offset (or offset 0)]
       (cond->> filtered
         (pos? offset) (drop offset)

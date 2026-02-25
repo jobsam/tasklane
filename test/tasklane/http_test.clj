@@ -55,12 +55,16 @@
 
 (deftest list-filters-test
   (let [reqs [(mock/request :post "/tasks" (json/write-str {:name "a"}))
-              (mock/request :post "/tasks" (json/write-str {:name "b" :status "done"}))
-              (mock/request :post "/tasks" (json/write-str {:name "c" :status "done"}))]
+              (mock/request :post "/tasks" (json/write-str {:name "b" :status "done" :tags ["ops"]}))
+              (mock/request :post "/tasks" (json/write-str {:name "c" :status "done" :tags ["ops"]}))]
         _ (doseq [req reqs]
             (http/app (mock/content-type req "application/json")))
         list-resp (http/app (mock/request :get "/tasks?status=done&limit=1&offset=1"))
-        list-body (parse-json list-resp)]
+        list-body (parse-json list-resp)
+        tag-resp (http/app (mock/request :get "/tasks?tag=ops"))
+        tag-body (parse-json tag-resp)]
     (is (= 200 (:status list-resp)))
     (is (= 1 (count list-body)))
-    (is (= "c" (:name (first list-body))))))
+    (is (= "c" (:name (first list-body))))
+    (is (= 200 (:status tag-resp)))
+    (is (= #{"b" "c"} (set (map :name tag-body))))))

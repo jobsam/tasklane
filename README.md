@@ -35,6 +35,7 @@ Use as a local library while iterating, then publish to Clojars when ready.
 - JSON API with Ring + Reitit
 - In-memory task store plus SQLite-backed persistence
 - Validation and consistent error responses
+- Tags for lightweight task categorization
 - Query filtering and pagination
 - Planner library for prioritizing work and spotting deadline risk
 - Tests for service logic and HTTP endpoints
@@ -47,13 +48,14 @@ Tasks are stored as maps with:
 - `:status` keyword (`:pending`, `:in-progress`, `:done`)
 - `:priority` integer 1-5 (optional)
 - `:due-at` ISO-8601 string (optional)
+- `:tags` vector of strings (optional, defaults to `[]`)
 - `:created-at` ISO-8601 string
 - `:updated-at` ISO-8601 string (optional)
 
 ## Endpoints
 - `GET /health` -> `{ "status": "OK" }`
 - `GET /tasks` -> list tasks
-  - Optional query params: `status`, `limit`, `offset`
+  - Optional query params: `status`, `tag`, `limit`, `offset`
 - `POST /tasks` -> create task
 - `GET /tasks/:id` -> fetch task
 - `PATCH /tasks/:id` -> update task
@@ -65,9 +67,10 @@ curl -s http://localhost:3000/health
 
 curl -s -X POST http://localhost:3000/tasks \
   -H 'Content-Type: application/json' \
-  -d '{"name":"Write README","priority":2}'
+  -d '{"name":"Write README","priority":2,"tags":["docs","release"]}'
 
 curl -s http://localhost:3000/tasks?status=done&limit=10&offset=0
+curl -s http://localhost:3000/tasks?tag=docs
 
 curl -s -X PATCH http://localhost:3000/tasks/1 \
   -H 'Content-Type: application/json' \
@@ -93,7 +96,9 @@ or a SQLite-backed store for persistence.
 
 (def store (sqlite/open-store "jdbc:sqlite:/tmp/tasklane.db"))
 
-(service/create-task store {:name "Ship release" :due-at "2024-01-05T00:00:00Z"})
+(service/create-task store {:name "Ship release"
+                            :due-at "2024-01-05T00:00:00Z"
+                            :tags ["release"]})
 (service/list-tasks store {:status "pending" :limit 10})
 ```
 
@@ -138,7 +143,47 @@ store is used.
 - `delete-task` -> `{:ok task}` or `{:error ...}`
 
 Tasks are maps with `:id`, `:name`, `:description`, `:status`, `:priority`,
-`:due-at`, `:created-at`, and optional `:updated-at`.
+`:due-at`, `:tags`, `:created-at`, and optional `:updated-at`.
+
+## Hooks
+Hooks let you plug in behavior before/after create, update, and delete without
+changing core logic. Hooks receive a context map and may return a map to merge
+into it. If a hook returns `{:error ...}`, processing stops and the error is
+returned.
+
+Available events:
+- `:task/before-create`, `:task/after-create`
+- `:task/before-update`, `:task/after-update`
+- `:task/before-delete`, `:task/after-delete`
+
+Example:
+```clojure
+(require '[tasklane.service :as service])
+
+(def hooks
+  {:task/after-create
+   (fn [{:keys [result]}]
+     (println "created task" (:id result))
+     {})})
+
+(service/create-task {:name "Ship"} {:hooks hooks})
+```
+
+### Global hooks
+You can register hooks globally so they apply to all service calls.
+
+```clojure
+(require '[tasklane.service :as service])
+
+(service/register-hooks!
+ {:task/before-create (fn [ctx]
+                        (println "creating" (get-in ctx [:task :name]))
+                        ctx)})
+```
+
+## SQLite migrations
+SQLite stores run schema migrations automatically on startup. Existing databases
+are upgraded in place (for example, adding the `tags` column).
 
 ## Error responses
 Validation errors return `400` with:
@@ -172,6 +217,12 @@ clj -M:run
 ```bash
 TASKLANE_DB=/tmp/tasklane.db clj -M:run
 ```
+
+## Next release
+Planned additions are documented here so the current release stays lean:
+- Multi-user + auth
+- Bulk API operations
+- Planner enhancements (grouping, SLA scoring, CSV exports)
 
 ## Run tests
 ```bash
