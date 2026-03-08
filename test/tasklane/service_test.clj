@@ -100,3 +100,39 @@
     (let [result (service/create-task {:name "global"})]
       (is (= "global" (get-in result [:ok :name])))
       (is (= [:global-before :global-after] @events)))))
+
+(deftest bulk-operations-test
+  (testing "bulk create returns created tasks and per-item errors"
+    (let [result (service/bulk-create-tasks [{:name "a"}
+                                             {:priority 2}
+                                             {:name "c"}])
+          body (:ok result)]
+      (is (= 3 (:total body)))
+      (is (= 2 (:succeeded body)))
+      (is (= 1 (:failed body)))
+      (is (= #{"a" "c"} (set (map :name (:created body)))))
+      (is (= :validation (get-in body [:errors 0 :error :type])))))
+  (testing "bulk update handles mixed success and not-found"
+    (let [t1 (:ok (service/create-task {:name "a"}))
+          t2 (:ok (service/create-task {:name "b"}))
+          result (service/bulk-update-tasks [{:id (:id t1) :changes {:status "done"}}
+                                             {:id 999 :changes {:name "missing"}}
+                                             {:id (:id t2) :changes {:name "b2"}}])
+          body (:ok result)]
+      (is (= 3 (:total body)))
+      (is (= 2 (:succeeded body)))
+      (is (= 1 (:failed body)))
+      (is (= #{"a" "b2"} (set (map :name (:updated body)))))
+      (is (= :done (:status (first (filter #(= (:id t1) (:id %)) (:updated body))))))
+      (is (= :not-found (get-in body [:errors 0 :error :type])))))
+  (testing "bulk delete validates ids and deletes existing tasks"
+    (let [t1 (:ok (service/create-task {:name "a"}))
+          t2 (:ok (service/create-task {:name "b"}))
+          result (service/bulk-delete-tasks [(:id t1) "bad" 12345 (:id t2)])
+          body (:ok result)]
+      (is (= 4 (:total body)))
+      (is (= 2 (:succeeded body)))
+      (is (= 2 (:failed body)))
+      (is (= #{"a" "b"} (set (map :name (:deleted body)))))
+      (is (= :validation (get-in body [:errors 0 :error :type])))
+      (is (= :not-found (get-in body [:errors 1 :error :type]))))))

@@ -65,3 +65,16 @@
           task (service/get-task store 1)]
       (is (= "legacy" (:name task)))
       (is (= [] (:tags task))))))
+
+(deftest sqlite-bulk-operations-test
+  (let [store (sqlite/open-store (str "jdbc:sqlite:" (temp-db-path)))
+        created (:ok (service/bulk-create-tasks store [{:name "a"} {:name "b"}]))
+        ids (mapv :id (:created created))
+        updated (:ok (service/bulk-update-tasks store [{:id (first ids) :changes {:status "done"}}
+                                                       {:id (second ids) :changes {:name "b2"}}]))
+        deleted (:ok (service/bulk-delete-tasks store ids))]
+    (is (= 2 (:succeeded created)))
+    (is (= 2 (:succeeded updated)))
+    (is (= 2 (:succeeded deleted)))
+    (is (= :done (:status (first (:updated updated)))))
+    (is (= 0 (count (service/list-tasks store {}))))))
