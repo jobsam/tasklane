@@ -284,3 +284,112 @@
              {:ok (:result ctx)}))))
      (error-result :not-found "Task not found"
                    [{:field :id :message "no task for that id"}]))))
+
+(defn- sequential-items?
+  [value]
+  (and (sequential? value) (not (map? value))))
+
+(defn- bulk-summary
+  [ok-key ok-items error-items]
+  {:ok (assoc {ok-key ok-items
+               :errors error-items}
+         :total (+ (count ok-items) (count error-items))
+         :succeeded (count ok-items)
+         :failed (count error-items))})
+
+(defn bulk-create-tasks
+  "Create tasks in bulk. Returns {:ok {:created [...] :errors [...] ...}} or {:error ...}."
+  ([tasks]
+   (bulk-create-tasks default-store tasks))
+  ([store tasks]
+   (bulk-create-tasks store tasks nil))
+  ([store tasks opts]
+   (if (sequential-items? tasks)
+     (let [result (reduce (fn [acc [index task]]
+                            (let [response (create-task store task opts)]
+                              (if-let [created (:ok response)]
+                                (update acc :created conj created)
+                                (update acc :errors conj {:index index
+                                                          :error (:error response)}))))
+                          {:created []
+                           :errors []}
+                          (map-indexed vector tasks))]
+       (bulk-summary :created (:created result) (:errors result)))
+     (error-result :validation
+                   "Bulk create body must contain a list of tasks"
+                   [{:field :tasks :message "expected a list"}]))))
+
+(defn bulk-update-tasks
+  "Update tasks in bulk. Input items must be maps with :id and :changes."
+  ([items]
+   (bulk-update-tasks default-store items))
+  ([store items]
+   (bulk-update-tasks store items nil))
+  ([store items opts]
+   (if (sequential-items? items)
+     (let [result (reduce (fn [acc [index item]]
+                            (cond
+                              (not (map? item))
+                              (update acc :errors conj {:index index
+                                                        :error {:type :validation
+                                                                :message "Bulk update item must be an object"
+                                                                :errors [{:field :item
+                                                                          :message "expected an object"}]}})
+
+                              (not (integer? (:id item)))
+                              (update acc :errors conj {:index index
+                                                        :error {:type :validation
+                                                                :message "Bulk update item must include integer id"
+                                                                :errors [{:field :id
+                                                                          :message "id must be an integer"}]}})
+
+                              (not (map? (:changes item)))
+                              (update acc :errors conj {:index index
+                                                        :error {:type :validation
+                                                                :message "Bulk update item must include changes object"
+                                                                :errors [{:field :changes
+                                                                          :message "expected an object"}]}})
+
+                              :else
+                              (let [response (update-task store (:id item) (:changes item) opts)]
+                                (if-let [updated (:ok response)]
+                                  (update acc :updated conj updated)
+                                  (update acc :errors conj {:index index
+                                                            :id (:id item)
+                                                            :error (:error response)})))))
+                          {:updated []
+                           :errors []}
+                          (map-indexed vector items))]
+       (bulk-summary :updated (:updated result) (:errors result)))
+     (error-result :validation
+                   "Bulk update body must contain a list of updates"
+                   [{:field :updates :message "expected a list"}]))))
+
+(defn bulk-delete-tasks
+  "Delete tasks in bulk by id. Returns per-item errors for missing/invalid ids."
+  ([ids]
+   (bulk-delete-tasks default-store ids))
+  ([store ids]
+   (bulk-delete-tasks store ids nil))
+  ([store ids opts]
+   (if (sequential-items? ids)
+     (let [result (reduce (fn [acc [index id]]
+                            (if (integer? id)
+                              (let [response (delete-task store id opts)]
+                                (if-let [deleted (:ok response)]
+                                  (update acc :deleted conj deleted)
+                                  (update acc :errors conj {:index index
+                                                            :id id
+                                                            :error (:error response)})))
+                              (update acc :errors conj {:index index
+                                                        :error {:type :validation
+                                                                :message "Bulk delete ids must be integers"
+                                                                :errors [{:field :id
+                                                                          :message "id must be an integer"}]}})))
+                          {:deleted []
+                           :errors []}
+                          (map-indexed vector ids))]
+       (bulk-summary :deleted (:deleted result) (:errors result)))
+     (error-result :validation
+                   "Bulk delete body must contain a list of ids"
+                   [{:field :ids :message "expected a list"}]))))

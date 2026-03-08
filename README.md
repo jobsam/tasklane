@@ -57,6 +57,9 @@ Tasks are stored as maps with:
 - `GET /tasks` -> list tasks
   - Optional query params: `status`, `tag`, `limit`, `offset`
 - `POST /tasks` -> create task
+- `POST /tasks/bulk/create` -> bulk create tasks
+- `PATCH /tasks/bulk/update` -> bulk update tasks
+- `POST /tasks/bulk/delete` -> bulk delete tasks
 - `GET /tasks/:id` -> fetch task
 - `PATCH /tasks/:id` -> update task
 - `DELETE /tasks/:id` -> delete task
@@ -75,6 +78,18 @@ curl -s http://localhost:3000/tasks?tag=docs
 curl -s -X PATCH http://localhost:3000/tasks/1 \
   -H 'Content-Type: application/json' \
   -d '{"status":"done"}'
+
+curl -s -X POST http://localhost:3000/tasks/bulk/create \
+  -H 'Content-Type: application/json' \
+  -d '{"tasks":[{"name":"a"},{"name":"b","tags":["ops"]}]}'
+
+curl -s -X PATCH http://localhost:3000/tasks/bulk/update \
+  -H 'Content-Type: application/json' \
+  -d '{"updates":[{"id":1,"changes":{"status":"done"}},{"id":2,"changes":{"name":"updated"}}]}'
+
+curl -s -X POST http://localhost:3000/tasks/bulk/delete \
+  -H 'Content-Type: application/json' \
+  -d '{"ids":[1,2,3]}'
 ```
 
 ## Use as a library
@@ -141,9 +156,15 @@ store is used.
 - `get-task` -> task or `nil`
 - `update-task` -> `{:ok task}` or `{:error ...}`
 - `delete-task` -> `{:ok task}` or `{:error ...}`
+- `bulk-create-tasks` -> `{:ok {:created [...] :errors [...] :total n :succeeded n :failed n}}`
+- `bulk-update-tasks` -> `{:ok {:updated [...] :errors [...] :total n :succeeded n :failed n}}`
+- `bulk-delete-tasks` -> `{:ok {:deleted [...] :errors [...] :total n :succeeded n :failed n}}`
 
 Tasks are maps with `:id`, `:name`, `:description`, `:status`, `:priority`,
 `:due-at`, `:tags`, `:created-at`, and optional `:updated-at`.
+
+Bulk operations are non-atomic. Valid items are applied while invalid or missing
+items are returned under `:errors` with an `:index` and structured error body.
 
 ## Hooks
 Hooks let you plug in behavior before/after create, update, and delete without
@@ -221,7 +242,6 @@ TASKLANE_DB=/tmp/tasklane.db clj -M:run
 ## Next release
 Planned additions are documented here so the current release stays lean:
 - Multi-user + auth
-- Bulk API operations
 - Planner enhancements (grouping, SLA scoring, CSV exports)
 
 ## Run tests

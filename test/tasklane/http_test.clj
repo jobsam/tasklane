@@ -68,3 +68,45 @@
     (is (= "c" (:name (first list-body))))
     (is (= 200 (:status tag-resp)))
     (is (= #{"b" "c"} (set (map :name tag-body))))))
+
+(deftest bulk-api-test
+  (let [bulk-create-req (-> (mock/request :post "/tasks/bulk/create"
+                                           (json/write-str {:tasks [{:name "a"}
+                                                                    {:priority 3}
+                                                                    {:name "c"}]}))
+                            (mock/content-type "application/json"))
+        bulk-create-resp (http/app bulk-create-req)
+        bulk-create-body (parse-json bulk-create-resp)
+        created-ids (map :id (:created bulk-create-body))
+        bulk-update-req (-> (mock/request :patch "/tasks/bulk/update"
+                                          (json/write-str {:updates [{:id (first created-ids)
+                                                                      :changes {:status "done"}}
+                                                                     {:id 9999
+                                                                      :changes {:name "missing"}}
+                                                                     {:id (second created-ids)
+                                                                      :changes {:name "c2"}}]}))
+                            (mock/content-type "application/json"))
+        bulk-update-resp (http/app bulk-update-req)
+        bulk-update-body (parse-json bulk-update-resp)
+        bulk-delete-req (-> (mock/request :post "/tasks/bulk/delete"
+                                          (json/write-str {:ids [(first created-ids) "bad"]}))
+                            (mock/content-type "application/json"))
+        bulk-delete-resp (http/app bulk-delete-req)
+        bulk-delete-body (parse-json bulk-delete-resp)]
+    (is (= 200 (:status bulk-create-resp)))
+    (is (= 3 (:total bulk-create-body)))
+    (is (= 2 (:succeeded bulk-create-body)))
+    (is (= 1 (:failed bulk-create-body)))
+    (is (= "validation" (get-in bulk-create-body [:errors 0 :error :type])))
+
+    (is (= 200 (:status bulk-update-resp)))
+    (is (= 3 (:total bulk-update-body)))
+    (is (= 2 (:succeeded bulk-update-body)))
+    (is (= 1 (:failed bulk-update-body)))
+    (is (= "not-found" (get-in bulk-update-body [:errors 0 :error :type])))
+
+    (is (= 200 (:status bulk-delete-resp)))
+    (is (= 2 (:total bulk-delete-body)))
+    (is (= 1 (:succeeded bulk-delete-body)))
+    (is (= 1 (:failed bulk-delete-body)))
+    (is (= "validation" (get-in bulk-delete-body [:errors 0 :error :type])))))

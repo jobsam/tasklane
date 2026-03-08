@@ -66,6 +66,12 @@
                           (if-let [task (:ok result)]
                             (created task)
                             (bad-request (:error result)))))
+        handle-bulk-create (fn [req]
+                             (let [tasks (:tasks (:body req))
+                                   result (service/bulk-create-tasks store tasks)]
+                               (if-let [ok-result (:ok result)]
+                                 (ok ok-result)
+                                 (bad-request (:error result)))))
         handle-list (fn [req]
                       (let [query (list-query (:query-params req))]
                         (if-let [filters (:ok query)]
@@ -88,6 +94,18 @@
                           (if-let [task (:ok result)]
                             (ok task)
                             (not-found (:error result)))))
+        handle-bulk-update (fn [req]
+                             (let [updates (:updates (:body req))
+                                   result (service/bulk-update-tasks store updates)]
+                               (if-let [ok-result (:ok result)]
+                                 (ok ok-result)
+                                 (bad-request (:error result)))))
+        handle-bulk-delete (fn [req]
+                             (let [ids (:ids (:body req))
+                                   result (service/bulk-delete-tasks store ids)]
+                               (if-let [ok-result (:ok result)]
+                                 (ok ok-result)
+                                 (bad-request (:error result)))))
         handler
         (ring/ring-handler
          (ring/router
@@ -95,6 +113,13 @@
            ["/tasks"
             {:get handle-list
              :post handle-create}]
+           ["/tasks/bulk/create"
+            {:post handle-bulk-create}]
+           ["/tasks/bulk/update"
+            {:patch handle-bulk-update}]
+           ["/tasks/bulk/delete"
+            {:post handle-bulk-delete
+             :delete handle-bulk-delete}]
            ["/tasks/:id"
             {:get (fn [req]
                     (if-let [id (parse-id (get-in req [:path-params :id]))]
